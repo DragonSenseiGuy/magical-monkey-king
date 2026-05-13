@@ -60,25 +60,48 @@ jobs:
             "$GITHUB_WORKSPACE/project" \
             --package web
 
-      - name: Locate web build output
-        id: locate
-        run: |
-          set -euxo pipefail
-          BUILD=$(find . -type d -name "*-web" -not -path "./renpy-sdk/*" | head -1)
-          if [ -z "$BUILD" ]; then
-            echo "ERROR: no web build directory was produced." >&2
-            find . -maxdepth 5 -type d -name "*dists*" -o -name "*-web" >&2 || true
-            exit 1
-          fi
-          echo "Found web build at: $BUILD"
-          echo "build_dir=$BUILD" >> "$GITHUB_OUTPUT"
-
       - name: Stage site for Pages
         run: |
           set -euxo pipefail
+
+          # Ren'Py's web build lands in <project-name>-dists/ as either a folder
+          # ending in -web or a zip ending in -web.zip. Handle both cases.
+          DIST_DIR=$(find . -type d -name "*-dists" -not -path "./renpy-sdk/*" | head -1)
+          if [ -z "$DIST_DIR" ]; then
+            echo "ERROR: no -dists directory was produced." >&2
+            find . -maxdepth 4 -type d >&2
+            exit 1
+          fi
+
+          echo "Distribution directory: $DIST_DIR"
+          ls -la "$DIST_DIR"
+
           mkdir -p _site
-          cp -r "${{ steps.locate.outputs.build_dir }}"/* _site/
+
+          WEB_DIR=$(find "$DIST_DIR" -maxdepth 1 -type d -name "*-web" | head -1)
+          WEB_ZIP=$(find "$DIST_DIR" -maxdepth 1 -type f -name "*-web.zip" | head -1)
+
+          if [ -n "$WEB_DIR" ]; then
+            echo "Using web build directory: $WEB_DIR"
+            cp -r "$WEB_DIR"/* _site/
+          elif [ -n "$WEB_ZIP" ]; then
+            echo "Using web build zip: $WEB_ZIP"
+            unzip -q "$WEB_ZIP" -d _site
+            # If the zip wrapped its contents in a single top-level folder, hoist them.
+            INNER=$(find _site -mindepth 1 -maxdepth 1 -type d | head -1)
+            if [ "$(ls -1 _site | wc -l)" -eq 1 ] && [ -n "$INNER" ] && [ ! -f _site/index.html ]; then
+              shopt -s dotglob
+              mv "$INNER"/* _site/
+              rmdir "$INNER"
+            fi
+          else
+            echo "ERROR: neither a *-web directory nor a *-web.zip was found in $DIST_DIR" >&2
+            exit 1
+          fi
+
+          echo "Final _site contents:"
           ls -la _site
+          test -f _site/index.html || { echo "ERROR: index.html not found in _site"; exit 1; }
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
