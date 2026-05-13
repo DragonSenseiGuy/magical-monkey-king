@@ -1,0 +1,97 @@
+name: Build and Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, queueing without canceling in-progress runs.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  RENPY_VERSION: "8.3.7"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+        with:
+          path: project
+
+      - name: Cache Ren'Py SDK + web support
+        id: cache-renpy
+        uses: actions/cache@v4
+        with:
+          path: renpy-sdk
+          key: renpy-sdk-${{ env.RENPY_VERSION }}-with-web-v1
+
+      - name: Download Ren'Py SDK and web support
+        if: steps.cache-renpy.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          wget -q "https://www.renpy.org/dl/${RENPY_VERSION}/renpy-${RENPY_VERSION}-sdk.tar.bz2"
+          tar xf "renpy-${RENPY_VERSION}-sdk.tar.bz2"
+          mv "renpy-${RENPY_VERSION}-sdk" renpy-sdk
+          rm "renpy-${RENPY_VERSION}-sdk.tar.bz2"
+
+          wget -q "https://www.renpy.org/dl/${RENPY_VERSION}/renpy-${RENPY_VERSION}-web.zip"
+          unzip -q "renpy-${RENPY_VERSION}-web.zip" -d renpy-sdk/
+          rm "renpy-${RENPY_VERSION}-web.zip"
+
+      - name: Make Ren'Py executable
+        run: chmod +x renpy-sdk/renpy.sh
+
+      - name: Build web distribution
+        env:
+          SDL_AUDIODRIVER: dummy
+          SDL_VIDEODRIVER: dummy
+        run: |
+          set -euxo pipefail
+          ./renpy-sdk/renpy.sh renpy-sdk/launcher distribute \
+            "$GITHUB_WORKSPACE/project" \
+            --package web
+
+      - name: Locate web build output
+        id: locate
+        run: |
+          set -euxo pipefail
+          BUILD=$(find . -type d -name "*-web" -not -path "./renpy-sdk/*" | head -1)
+          if [ -z "$BUILD" ]; then
+            echo "ERROR: no web build directory was produced." >&2
+            find . -maxdepth 5 -type d -name "*dists*" -o -name "*-web" >&2 || true
+            exit 1
+          fi
+          echo "Found web build at: $BUILD"
+          echo "build_dir=$BUILD" >> "$GITHUB_OUTPUT"
+
+      - name: Stage site for Pages
+        run: |
+          set -euxo pipefail
+          mkdir -p _site
+          cp -r "${{ steps.locate.outputs.build_dir }}"/* _site/
+          ls -la _site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

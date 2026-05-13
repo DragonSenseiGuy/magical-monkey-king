@@ -1,0 +1,22 @@
+# Ren'Py compiled / cache files
+*.rpyc
+*.rpa
+*.rpymc
+*.rpyb
+
+# Ren'Py runtime data
+game/cache/
+game/saves/
+game/log.txt
+log.txt
+errors.txt
+traceback.txt
+tmp/
+
+# Build outputs
+*-dists/
+*-web/
+
+# OS junk
+.DS_Store
+Thumbs.db
