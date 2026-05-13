@@ -50,58 +50,46 @@ jobs:
       - name: Make Ren'Py executable
         run: chmod +x renpy-sdk/renpy.sh
 
-      - name: Build web distribution
+      - name: Build web (HTML5) distribution
         env:
           SDL_AUDIODRIVER: dummy
           SDL_VIDEODRIVER: dummy
         run: |
           set -euxo pipefail
-          ./renpy-sdk/renpy.sh renpy-sdk/launcher distribute \
+          mkdir -p web-out
+          # The dedicated CLI for web builds (Ren'Py docs: Command Line Interface > Web Build).
+          # Distinct from `distribute`, which only produces desktop packages.
+          ./renpy-sdk/renpy.sh renpy-sdk/launcher web_build \
             "$GITHUB_WORKSPACE/project" \
-            --package web
+            --destination "$GITHUB_WORKSPACE/web-out"
 
       - name: Stage site for Pages
         run: |
           set -euxo pipefail
 
-          # Ren'Py's web build lands in <project-name>-dists/ as either a folder
-          # ending in -web or a zip ending in -web.zip. Handle both cases.
-          DIST_DIR=$(find . -type d -name "*-dists" -not -path "./renpy-sdk/*" | head -1)
-          if [ -z "$DIST_DIR" ]; then
-            echo "ERROR: no -dists directory was produced." >&2
-            find . -maxdepth 4 -type d >&2
-            exit 1
-          fi
-
-          echo "Distribution directory: $DIST_DIR"
-          ls -la "$DIST_DIR"
+          echo "web-out contents:"
+          ls -la web-out
 
           mkdir -p _site
 
-          WEB_DIR=$(find "$DIST_DIR" -maxdepth 1 -type d -name "*-web" | head -1)
-          WEB_ZIP=$(find "$DIST_DIR" -maxdepth 1 -type f -name "*-web.zip" | head -1)
-
-          if [ -n "$WEB_DIR" ]; then
-            echo "Using web build directory: $WEB_DIR"
-            cp -r "$WEB_DIR"/* _site/
-          elif [ -n "$WEB_ZIP" ]; then
-            echo "Using web build zip: $WEB_ZIP"
-            unzip -q "$WEB_ZIP" -d _site
-            # If the zip wrapped its contents in a single top-level folder, hoist them.
-            INNER=$(find _site -mindepth 1 -maxdepth 1 -type d | head -1)
-            if [ "$(ls -1 _site | wc -l)" -eq 1 ] && [ -n "$INNER" ] && [ ! -f _site/index.html ]; then
-              shopt -s dotglob
-              mv "$INNER"/* _site/
-              rmdir "$INNER"
-            fi
+          # web_build writes index.html etc. directly into --destination,
+          # but some Ren'Py versions wrap them in a single subdirectory.
+          if [ -f web-out/index.html ]; then
+            cp -r web-out/* _site/
           else
-            echo "ERROR: neither a *-web directory nor a *-web.zip was found in $DIST_DIR" >&2
-            exit 1
+            INNER=$(find web-out -mindepth 1 -maxdepth 1 -type d | head -1)
+            if [ -n "$INNER" ] && [ -f "$INNER/index.html" ]; then
+              cp -r "$INNER"/* _site/
+            else
+              echo "ERROR: no index.html found in the web build output" >&2
+              find web-out -maxdepth 3 -type f | head -50 >&2
+              exit 1
+            fi
           fi
 
           echo "Final _site contents:"
           ls -la _site
-          test -f _site/index.html || { echo "ERROR: index.html not found in _site"; exit 1; }
+          test -f _site/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
