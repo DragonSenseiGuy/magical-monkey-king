@@ -8,7 +8,7 @@
 define narrator = Character(None, what_color="#f5f5f5")
 define wukong = Character("Sun Wukong", color="#ffd24a")
 define monkey = Character("Monkey", color="#c1a37a")
-define master = Character("Master Subhuti", color="#9ad1ff")
+define master = Character("Master Subhodi", color="#9ad1ff")
 define dragon = Character("Dragon King", color="#7af0c0")
 define jade = Character("Jade Emperor", color="#ffe680")
 define officer = Character("Heavenly Officer", color="#cccccc")
